@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.cache/
+v2_log.txt
+*.log
+*.txt
+!setup_tesseract.md
+!README.md
