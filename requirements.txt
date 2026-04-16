@@ -1,0 +1,10 @@
+# Rad AI Automation — Python dependencies
+# Install: pip install -r requirements.txt
+
+pywinauto>=0.6.8
+pyperclip>=1.8.0
+pyautogui>=0.9.50
+pywin32>=306
+pytesseract>=0.3.10
+Pillow>=10.0.0
+websocket-client>=1.6.0

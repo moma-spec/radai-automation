@@ -141,11 +141,46 @@ def download_script(token):
             print(f"[Launcher] Update failed — using cached version."); return True
         print(f"\n[Launcher] FATAL: {e}"); return False
 
+# ── Auto-install dependencies ──────────────────────────────────────────────────
+def _ensure_deps():
+    """Install pip requirements on first run (or when requirements.txt changes)."""
+    req_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
+    sentinel = os.path.join(CACHE_DIR, ".deps_installed")
+    if not os.path.exists(req_file):
+        return  # nothing to install
+
+    # Hash requirements.txt to detect changes
+    with open(req_file, "rb") as f:
+        req_hash = _hash(f.read())
+
+    # Skip if already installed with same hash
+    if os.path.exists(sentinel):
+        with open(sentinel, "r") as f:
+            if f.read().strip() == req_hash:
+                return
+
+    print("[Launcher] Installing Python dependencies...")
+    import subprocess
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "-r", req_file],
+            stdout=sys.stdout, stderr=sys.stderr
+        )
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(sentinel, "w") as f:
+            f.write(req_hash)
+        print("[Launcher] Dependencies installed successfully.\n")
+    except subprocess.CalledProcessError as e:
+        print(f"[Launcher] WARNING: pip install failed ({e}). Some features may not work.")
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     token = RADAI_TOKEN
     if not token:
         token = request_access()
+
+    # Auto-install dependencies before first run
+    _ensure_deps()
 
     if not SKIP_UPDATE:
         if not download_script(token):
