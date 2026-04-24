@@ -5,8 +5,8 @@ Downloads the automation script from the secure server and runs it.
 
 First-time setup
 -----------------
-1. pip install -r requirements.txt
-2. Double-click launch.bat  (or: python launcher.py -f)
+1. Double-click launch.bat  (or: python launcher.py -f)
+   - Dependencies are installed automatically on first run
    - On first run it will ask for your name and email
    - Your request goes to the admin for approval
    - Once approved, you'll receive a token — paste it here when prompted
@@ -141,11 +141,55 @@ def download_script(token):
             print(f"[Launcher] Update failed — using cached version."); return True
         print(f"\n[Launcher] FATAL: {e}"); return False
 
+# ── Auto-install dependencies ──────────────────────────────────────────────────
+def _ensure_deps():
+    """Install pip requirements on first run (or when requirements.txt changes)."""
+    req_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
+    sentinel = os.path.join(CACHE_DIR, ".deps_installed")
+    if not os.path.exists(req_file):
+        return  # nothing to install
+
+    # Hash requirements.txt to detect changes
+    with open(req_file, "rb") as f:
+        req_hash = _hash(f.read())
+
+    # Skip if already installed with same hash
+    if os.path.exists(sentinel):
+        with open(sentinel, "r") as f:
+            if f.read().strip() == req_hash:
+                return
+
+    print("[Launcher] Installing Python dependencies...")
+    import subprocess
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "-r", req_file],
+            stdout=sys.stdout, stderr=sys.stderr
+        )
+        # Download NLTK tokenizer data required by sumy
+        try:
+            subprocess.check_call(
+                [sys.executable, "-c",
+                 "import nltk; nltk.download('punkt_tab', quiet=True)"],
+                stdout=sys.stdout, stderr=sys.stderr
+            )
+        except Exception:
+            print("[Launcher] Note: NLTK data download failed. Summarization may use fallback mode.")
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(sentinel, "w") as f:
+            f.write(req_hash)
+        print("[Launcher] Dependencies installed successfully.\n")
+    except subprocess.CalledProcessError as e:
+        print(f"[Launcher] WARNING: pip install failed ({e}). Some features may not work.")
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     token = RADAI_TOKEN
     if not token:
         token = request_access()
+
+    # Auto-install dependencies before first run
+    _ensure_deps()
 
     if not SKIP_UPDATE:
         if not download_script(token):
