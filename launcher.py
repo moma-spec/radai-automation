@@ -166,15 +166,16 @@ def _ensure_deps():
             [sys.executable, "-m", "pip", "install", "-r", req_file],
             stdout=sys.stdout, stderr=sys.stderr
         )
-        # Download NLTK tokenizer data required by sumy
+        # Download NLTK tokenizer data required by sumy + Epic summarizer
         try:
             subprocess.check_call(
                 [sys.executable, "-c",
-                 "import nltk; nltk.download('punkt_tab', quiet=True)"],
+                 "import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True)"],
                 stdout=sys.stdout, stderr=sys.stderr
             )
         except Exception:
             print("[Launcher] Note: NLTK data download failed. Summarization may use fallback mode.")
+        # Note: sentence-transformers model 'all-MiniLM-L6-v2' (~90MB) auto-downloads on first use
         os.makedirs(CACHE_DIR, exist_ok=True)
         with open(sentinel, "w") as f:
             f.write(req_hash)
