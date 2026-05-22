@@ -39,6 +39,7 @@ SCRIPT_FILE = "v3_dose.py"
 
 CACHE_DIR     = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
 CACHED_SCRIPT = os.path.join(CACHE_DIR, SCRIPT_FILE)
+LOCAL_REQS    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
 
 # ── HTTP helpers ───────────────────────────────────────────────────────────────
 def _post(path, payload):
@@ -116,18 +117,39 @@ def request_access():
     print("\n[Error] Timed out. Restart launcher later — request is still pending.")
     sys.exit(1)
 
-# ── Download script ────────────────────────────────────────────────────────────
-def download_script(token):
+# ── Download script + requirements ─────────────────────────────────────────────
+def _download_one(token, filename, dest_path):
+    """Download a single file from the server. Returns True if updated."""
+    try:
+        data = _get_bytes(f"/api/radai/download?token={urllib.parse.quote(token)}&file={urllib.parse.quote(filename)}")
+        old = open(dest_path, "rb").read() if os.path.exists(dest_path) else b""
+        if _hash(data) != _hash(old):
+            with open(dest_path, "wb") as f:
+                f.write(data)
+            return True
+        return False
+    except Exception:
+        return False  # non-critical — will use local copy
+
+def download_files(token):
     try:
         print("[Launcher] Checking for updates...")
-        data = _get_bytes(f"/api/radai/download?token={urllib.parse.quote(token)}")
         os.makedirs(CACHE_DIR, exist_ok=True)
+
+        # 1. Download the main script
+        data = _get_bytes(f"/api/radai/download?token={urllib.parse.quote(token)}")
         old = open(CACHED_SCRIPT, "rb").read() if os.path.exists(CACHED_SCRIPT) else b""
         if _hash(data) != _hash(old):
-            open(CACHED_SCRIPT, "wb").write(data)
+            with open(CACHED_SCRIPT, "wb") as f:
+                f.write(data)
             print(f"[Launcher] Script updated  ({len(data):,} bytes)")
         else:
             print("[Launcher] Already up to date.")
+
+        # 2. Download requirements.txt (update local copy if server has newer)
+        if _download_one(token, "requirements.txt", LOCAL_REQS):
+            print("[Launcher] requirements.txt updated from server")
+
         return True
     except urllib.error.HTTPError as e:
         if e.code == 403:
@@ -189,15 +211,16 @@ if __name__ == "__main__":
     if not token:
         token = request_access()
 
-    # Auto-install dependencies before first run
-    _ensure_deps()
-
+    # Download latest script + requirements from server
     if not SKIP_UPDATE:
-        if not download_script(token):
+        if not download_files(token):
             sys.exit(1)
     elif not os.path.exists(CACHED_SCRIPT):
-        if not download_script(token):
+        if not download_files(token):
             sys.exit(1)
+
+    # Install/update dependencies (uses potentially-updated requirements.txt)
+    _ensure_deps()
 
     print(f"[Launcher] Running {SCRIPT_FILE}  (args: {sys.argv[1:]})\n")
     import runpy
