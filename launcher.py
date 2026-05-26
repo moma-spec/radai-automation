@@ -1,7 +1,8 @@
 """
 launcher.py — Rad AI Automation Launcher
 =========================================
-Downloads the automation script from the secure server and runs it.
+Downloads the automation script from the secure server and runs it
+entirely in memory. The source code is NEVER written to disk.
 
 First-time setup
 -----------------
@@ -49,23 +50,8 @@ SERVER_URL  = _env.get("RADAI_SERVER", "https://siliconhealth-website.vercel.app
 SKIP_UPDATE = _env.get("SKIP_UPDATE", "0").lower() in ("1", "true", "yes")
 SCRIPT_FILE = "v3_dose.py"
 
-def _extract_script_version(path):
-    """Read _VERSION and _BUILD_DATE from the downloaded script."""
-    ver, date = "?", "?"
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            head = f.read(2000)  # version is always in the first ~30 lines
-        m = re.search(r'^_VERSION\s*=\s*["\']([^"\']+)["\']', head, re.M)
-        if m: ver = m.group(1)
-        m = re.search(r'^_BUILD_DATE\s*=\s*["\']([^"\']+)["\']', head, re.M)
-        if m: date = m.group(1)
-    except Exception:
-        pass
-    return ver, date
-
-CACHE_DIR     = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
-CACHED_SCRIPT = os.path.join(CACHE_DIR, SCRIPT_FILE)
-LOCAL_REQS    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
+CACHE_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
+LOCAL_REQS  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
 
 # ── HTTP helpers ───────────────────────────────────────────────────────────────
 def _post(path, payload):
@@ -99,6 +85,17 @@ def _save_token(token):
     with open(_ENV_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines)
     print("[Launcher] Token saved to .env")
+
+# ── In-memory version extraction ──────────────────────────────────────────────
+def _extract_version_from_source(source):
+    """Read _VERSION and _BUILD_DATE from script source string."""
+    ver, date = "?", "?"
+    head = source[:2000]
+    m = re.search(r'^_VERSION\s*=\s*["\']([^"\']+)["\']', head, re.M)
+    if m: ver = m.group(1)
+    m = re.search(r'^_BUILD_DATE\s*=\s*["\']([^"\']+)["\']', head, re.M)
+    if m: date = m.group(1)
+    return ver, date
 
 # ── Access request flow ────────────────────────────────────────────────────────
 def request_access():
@@ -143,51 +140,51 @@ def request_access():
     print("\n[Error] Timed out. Restart launcher later — request is still pending.")
     sys.exit(1)
 
-# ── Download script + requirements ─────────────────────────────────────────────
-def _download_one(token, filename, dest_path):
-    """Download a single file from the server. Returns True if updated."""
-    try:
-        data = _get_bytes(f"/api/radai/download?token={urllib.parse.quote(token)}&file={urllib.parse.quote(filename)}")
-        old = open(dest_path, "rb").read() if os.path.exists(dest_path) else b""
-        if _hash(data) != _hash(old):
-            with open(dest_path, "wb") as f:
-                f.write(data)
-            return True
-        return False
-    except Exception:
-        return False  # non-critical — will use local copy
-
-def download_files(token):
+# ── Download script into memory ────────────────────────────────────────────────
+def download_script(token):
+    """Download v3_dose.py into memory. Returns (source_bytes, updated)."""
     try:
         print("[Launcher] Checking for updates...")
         os.makedirs(CACHE_DIR, exist_ok=True)
-
-        # 1. Download the main script
         data = _get_bytes(f"/api/radai/download?token={urllib.parse.quote(token)}")
-        old = open(CACHED_SCRIPT, "rb").read() if os.path.exists(CACHED_SCRIPT) else b""
-        if _hash(data) != _hash(old):
-            with open(CACHED_SCRIPT, "wb") as f:
-                f.write(data)
+
+        # Compare hash with last-known hash (no source on disk — only the hash)
+        hash_file = os.path.join(CACHE_DIR, ".script_hash")
+        new_hash = _hash(data)
+        old_hash = ""
+        if os.path.exists(hash_file):
+            with open(hash_file, "r") as f:
+                old_hash = f.read().strip()
+
+        if new_hash != old_hash:
+            with open(hash_file, "w") as f:
+                f.write(new_hash)
             print(f"[Launcher] Script updated  ({len(data):,} bytes)")
         else:
             print("[Launcher] Already up to date.")
 
-        # 2. Download requirements.txt (update local copy if server has newer)
-        if _download_one(token, "requirements.txt", LOCAL_REQS):
-            print("[Launcher] requirements.txt updated from server")
-
-        return True
+        return data, True
     except urllib.error.HTTPError as e:
         if e.code == 403:
             print("\n[Launcher] ERROR: Token invalid or revoked. Contact the administrator.")
-            return False
-        if os.path.exists(CACHED_SCRIPT):
-            print(f"[Launcher] Server error {e.code} — using cached version."); return True
-        return False
+            return None, False
+        print(f"[Launcher] Server error {e.code} — cannot start without script.")
+        return None, False
     except Exception as e:
-        if os.path.exists(CACHED_SCRIPT):
-            print(f"[Launcher] Update failed — using cached version."); return True
-        print(f"\n[Launcher] FATAL: {e}"); return False
+        print(f"\n[Launcher] FATAL: {e}")
+        return None, False
+
+def download_requirements(token):
+    """Download requirements.txt (update local copy if server has newer)."""
+    try:
+        data = _get_bytes(f"/api/radai/download?token={urllib.parse.quote(token)}&file={urllib.parse.quote('requirements.txt')}")
+        old = open(LOCAL_REQS, "rb").read() if os.path.exists(LOCAL_REQS) else b""
+        if _hash(data) != _hash(old):
+            with open(LOCAL_REQS, "wb") as f:
+                f.write(data)
+            print("[Launcher] requirements.txt updated from server")
+    except Exception:
+        pass  # non-critical
 
 # ── Auto-install dependencies ──────────────────────────────────────────────────
 def _ensure_deps():
@@ -237,20 +234,29 @@ if __name__ == "__main__":
     if not token:
         token = request_access()
 
-    # Download latest script + requirements from server
-    if not SKIP_UPDATE:
-        if not download_files(token):
-            sys.exit(1)
-    elif not os.path.exists(CACHED_SCRIPT):
-        if not download_files(token):
-            sys.exit(1)
+    # Download latest script into memory (never written to disk)
+    script_data, ok = download_script(token)
+    if not ok or not script_data:
+        sys.exit(1)
 
-    # Install/update dependencies (uses potentially-updated requirements.txt)
+    # Download requirements.txt (only this is written to disk — it's not sensitive)
+    download_requirements(token)
+
+    # Install/update dependencies
     _ensure_deps()
 
-    ver, date = _extract_script_version(CACHED_SCRIPT)
+    # Decode source in memory
+    source = script_data.decode("utf-8", errors="replace")
+    del script_data  # free raw bytes
+
+    # Extract version for display
+    ver, date = _extract_version_from_source(source)
     print(f"[Launcher] v3_dose  v{ver}  built {date}  python {sys.version.split()[0]}")
     print(f"[Launcher] Running {SCRIPT_FILE}  (args: {sys.argv[1:]})\n")
-    import runpy
-    sys.argv = [CACHED_SCRIPT] + sys.argv[1:]
-    runpy.run_path(CACHED_SCRIPT, run_name="__main__")
+
+    # Execute in memory — __file__ points to launcher dir so relative paths work
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.argv = [os.path.join(script_dir, SCRIPT_FILE)] + sys.argv[1:]
+    code = compile(source, SCRIPT_FILE, "exec")
+    del source  # free source string
+    exec(code, {"__name__": "__main__", "__file__": sys.argv[0]})
