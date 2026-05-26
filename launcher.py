@@ -18,8 +18,20 @@ Create a .env file next to this file with:
     RADAI_TOKEN=tok_your_token_here
 """
 
-import os, sys, hashlib, json, time
+import os, sys, re, hashlib, json, time
 import urllib.request, urllib.parse, urllib.error
+
+# ── Python version gate ────────────────────────────────────────────────────────
+_PY = sys.version_info[:2]
+if _PY < (3, 9):
+    print(f"\n[FATAL] Python {_PY[0]}.{_PY[1]} is not supported.")
+    print("        Please install Python 3.10 – 3.12 from https://www.python.org/")
+    input("Press Enter to exit..."); sys.exit(1)
+if _PY >= (3, 13):
+    print(f"\n[WARNING] Python {_PY[0]}.{_PY[1]} detected.")
+    print("          This app is tested on Python 3.10 – 3.12.")
+    print("          Some libraries (PyTorch, pywinauto) may crash on 3.13+.")
+    print("          Recommended: install Python 3.11 or 3.12.\n")
 
 # ── Load .env ─────────────────────────────────────────────────────────────────
 _ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
@@ -36,6 +48,20 @@ RADAI_TOKEN = _env.get("RADAI_TOKEN") or os.environ.get("RADAI_TOKEN", "")
 SERVER_URL  = _env.get("RADAI_SERVER", "https://siliconhealth-website.vercel.app")
 SKIP_UPDATE = _env.get("SKIP_UPDATE", "0").lower() in ("1", "true", "yes")
 SCRIPT_FILE = "v3_dose.py"
+
+def _extract_script_version(path):
+    """Read _VERSION and _BUILD_DATE from the downloaded script."""
+    ver, date = "?", "?"
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            head = f.read(2000)  # version is always in the first ~30 lines
+        m = re.search(r'^_VERSION\s*=\s*["\']([^"\']+)["\']', head, re.M)
+        if m: ver = m.group(1)
+        m = re.search(r'^_BUILD_DATE\s*=\s*["\']([^"\']+)["\']', head, re.M)
+        if m: date = m.group(1)
+    except Exception:
+        pass
+    return ver, date
 
 CACHE_DIR     = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
 CACHED_SCRIPT = os.path.join(CACHE_DIR, SCRIPT_FILE)
@@ -222,6 +248,8 @@ if __name__ == "__main__":
     # Install/update dependencies (uses potentially-updated requirements.txt)
     _ensure_deps()
 
+    ver, date = _extract_script_version(CACHED_SCRIPT)
+    print(f"[Launcher] v3_dose  v{ver}  built {date}  python {sys.version.split()[0]}")
     print(f"[Launcher] Running {SCRIPT_FILE}  (args: {sys.argv[1:]})\n")
     import runpy
     sys.argv = [CACHED_SCRIPT] + sys.argv[1:]
