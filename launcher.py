@@ -203,6 +203,113 @@ def download_requirements(token):
     except Exception:
         pass  # non-critical
 
+# ── Dictation module app (thyroid / cxr / ...) ────────────────────────────────
+APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA")
+                       or os.path.dirname(os.path.abspath(__file__)),
+                       "VoxelHelper", "module_app")
+
+def _ensure_app_deps():
+    """pip install the module app's requirements when they change."""
+    req = os.path.join(APP_DIR, "requirements.txt")
+    if not os.path.exists(req):
+        return
+    with open(req, "rb") as f:
+        h = _hash(f.read())
+    sentinel = os.path.join(APP_DIR, ".deps_installed")
+    if os.path.exists(sentinel):
+        with open(sentinel, "r") as f:
+            if f.read().strip() == h:
+                return
+    print("[Launcher] Installing module app dependencies...")
+    import subprocess
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req],
+                              stdout=sys.stdout, stderr=sys.stderr)
+        with open(sentinel, "w") as f:
+            f.write(h)
+    except subprocess.CalledProcessError as e:
+        print(f"[Launcher] WARNING: module app pip install failed ({e}).")
+
+def _use_local_app_copy(modules=None):
+    """Point the automation at an already-synced module app, if intact."""
+    if os.path.exists(os.path.join(APP_DIR, "server.py")):
+        os.environ["THYROID_APP_DIR"] = APP_DIR
+        # v3 opens each matching study's own UI url — the server must not
+        # auto-open the thyroid page on top of it.
+        os.environ.setdefault("DICTATION_SUPPRESS_AUTOBROWSER", "1")
+        if modules:
+            print(f"[Launcher] Dictation modules enabled: {', '.join(modules)}")
+        return True
+    return False
+
+def _sync_module_app(token):
+    """Mirror the dictation module app from the access server, when (and
+    only when) the admin has enabled modules (thyroid/cxr/...) for this
+    token — then point the automation at it via THYROID_APP_DIR.
+
+    - No modules enabled → nothing is downloaded and any previously synced
+      copy is DELETED: revoking module access also revokes the code.
+    - Files are fetched only when their git blob sha changed since the
+      last sync, so runtime-mutated files (e.g. the self-editing
+      ai_instructions.txt) keep their local state until the server-side
+      version actually changes.
+    - Never fatal: on any failure the session continues, using the
+      previous local copy if one is intact.
+    """
+    try:
+        v = _get("/api/radai/validate", headers=_auth_headers(token))
+    except Exception:
+        # Can't verify entitlements — keep whatever state we had.
+        _use_local_app_copy()
+        return
+    modules = v.get("modules") or []
+    if not modules:
+        if os.path.isdir(APP_DIR):
+            import shutil
+            shutil.rmtree(APP_DIR, ignore_errors=True)
+            print("[Launcher] Module app removed (no modules enabled for this token).")
+        return
+    try:
+        manifest = _get("/api/radai/app-manifest", headers=_auth_headers(token))
+        files = manifest.get("files") or []
+        os.makedirs(APP_DIR, exist_ok=True)
+        state_file = os.path.join(APP_DIR, ".synced.json")
+        synced = {}
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, encoding="utf-8") as f:
+                    synced = json.load(f)
+            except Exception:
+                synced = {}
+        new_synced, fetched = {}, 0
+        for fobj in files:
+            path, sha = fobj["path"], fobj["sha"]
+            local = os.path.join(APP_DIR, path.replace("/", os.sep))
+            if synced.get(path) == sha and os.path.exists(local):
+                new_synced[path] = sha
+                continue
+            data = _get_bytes("/api/radai/app-file?path=" + urllib.parse.quote(path),
+                              headers=_auth_headers(token))
+            os.makedirs(os.path.dirname(local) or APP_DIR, exist_ok=True)
+            with open(local, "wb") as f:
+                f.write(data)
+            new_synced[path] = sha
+            fetched += 1
+        # Drop files we synced earlier that the server no longer ships
+        for path in set(synced) - {f["path"] for f in files}:
+            try:
+                os.remove(os.path.join(APP_DIR, path.replace("/", os.sep)))
+            except OSError:
+                pass
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(new_synced, f)
+        print(f"[Launcher] Module app {'updated (%d file(s))' % fetched if fetched else 'up to date'}.")
+        _ensure_app_deps()
+        _use_local_app_copy(modules)
+    except Exception as e:
+        print(f"[Launcher] Module app sync failed ({e}) — using previous copy if available.")
+        _use_local_app_copy(modules)
+
 # ── Auto-install dependencies ──────────────────────────────────────────────────
 def _ensure_deps():
     """Install pip requirements on first run (or when requirements.txt changes)."""
@@ -288,6 +395,10 @@ if __name__ == "__main__":
 
     # Install/update dependencies
     _ensure_deps()
+
+    # Sync the dictation module app (thyroid/cxr/...) if the admin enabled
+    # modules for this token — sets THYROID_APP_DIR for the automation.
+    _sync_module_app(token)
 
     # Decode source in memory
     source = script_data.decode("utf-8", errors="replace")
