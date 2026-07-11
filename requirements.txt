@@ -1,14 +1,20 @@
 # Rad AI Automation — Python dependencies
 # Install: pip install -r requirements.txt
-# Tested on Python 3.10 – 3.12.  3.13+ may work but is not guaranteed.
+# Tested on Python 3.10 – 3.13.
 
 pywinauto>=0.6.8
 pyperclip>=1.8.0
 pyautogui>=0.9.50
 pywin32>=306
-winocr>=0.2.0
+# winocr's latest release is 0.0.x — a >=0.2.0 pin is unsatisfiable and
+# makes pip abort the ENTIRE install. Keep the bound in the 0.0.x range.
+winocr>=0.0.13
 Pillow>=10.0.0
 websocket-client>=1.6.0
 sumy>=0.11.0
 nltk>=3.8.0
 sentence-transformers>=2.2.0
+# imported directly by the automation (previously only arrived by luck
+# as transitive deps — do not remove):
+numpy>=1.26
+mss>=9.0

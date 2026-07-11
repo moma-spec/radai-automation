@@ -2,6 +2,16 @@
 
 Automation tool that monitors Epic (Hyperspace), pre-fetches prior study data from Clario, extracts CT radiation dose values via OCR from PACS popup windows, and pastes everything into the Rad AI Reporting comparison field.
 
+## Easiest install: VoxelHelperSetup.exe (recommended)
+
+If the administrator gave you **VoxelHelperSetup.exe**, you don't need anything
+on this page — no Python, no pip, no Chrome shortcut. Run the installer, enter
+your name/email when asked, wait for approval, and the app lives in your
+system tray (status, restart/update, F10/F12, logs, quit). It launches its own
+Clario Chrome window automatically.
+
+The steps below are the **manual/legacy setup** — still fully supported.
+
 ## Prerequisites
 
 - **Windows 10/11** (uses Win32 / UIA APIs)
