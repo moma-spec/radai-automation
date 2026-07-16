@@ -308,7 +308,16 @@ def _sync_module_app(token):
         _use_local_app_copy(modules)
     except Exception as e:
         print(f"[Launcher] Module app sync failed ({e}) — using previous copy if available.")
-        _use_local_app_copy(modules)
+        if not _use_local_app_copy(modules):
+            # The user IS entitled to modules but has no runnable copy at all —
+            # without this, the module just silently never appears (seen live:
+            # server-side GitHub token lost read access to the app repo).
+            print("=" * 70)
+            print(f"[Launcher] ERROR: your dictation modules ({', '.join(modules)}) could not")
+            print("[Launcher] be downloaded and no local copy exists — they will be")
+            print("[Launcher] UNAVAILABLE this session. Please tell the administrator")
+            print("[Launcher] (server-side app download failure).")
+            print("=" * 70)
 
 # ── Auto-install dependencies ──────────────────────────────────────────────────
 def _ensure_deps():
