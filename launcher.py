@@ -424,6 +424,28 @@ if __name__ == "__main__":
     # Execute in memory — __file__ points to launcher dir so relative paths work
     script_dir = os.path.dirname(os.path.abspath(__file__))
     sys.argv = [os.path.join(script_dir, SCRIPT_FILE)] + sys.argv[1:]
-    code = compile(source, SCRIPT_FILE, "exec")
+    try:
+        code = compile(source, SCRIPT_FILE, "exec")
+    except SyntaxError as e:
+        # The automation is developed on a newer Python than some users have,
+        # and a syntax feature the dev interpreter accepts (e.g. a backslash
+        # inside an f-string expression, legal only from 3.12 — PEP 701) fails
+        # at COMPILE time, before any code runs. Raw, that surfaced to a user
+        # as a bare traceback pointing at a line of source they cannot see,
+        # with nothing to act on. Say what it is and what to do.
+        v = sys.version_info
+        print(f"\n[Launcher] ERROR: {SCRIPT_FILE} could not be compiled by this "
+              f"Python ({v.major}.{v.minor}.{v.micro}).")
+        print(f"[Launcher]   {e.msg}  (line {e.lineno})")
+        if v < (3, 12):
+            print(f"[Launcher]")
+            print(f"[Launcher] This is almost certainly a Python version problem, not a")
+            print(f"[Launcher] broken download. Install Python 3.12 or newer from")
+            print(f"[Launcher] https://www.python.org/downloads/ (tick \"Add python.exe")
+            print(f"[Launcher] to PATH\"), then run launch.bat again.")
+        else:
+            print(f"[Launcher]")
+            print(f"[Launcher] Please send this message to the developer.")
+        sys.exit(1)
     del source  # free source string
     exec(code, {"__name__": "__main__", "__file__": sys.argv[0]})
