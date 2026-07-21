@@ -437,15 +437,20 @@ if __name__ == "__main__":
         print(f"\n[Launcher] ERROR: {SCRIPT_FILE} could not be compiled by this "
               f"Python ({v.major}.{v.minor}.{v.micro}).")
         print(f"[Launcher]   {e.msg}  (line {e.lineno})")
+        print(f"[Launcher]")
+        print(f"[Launcher] This is a bug in the automation script, not a broken")
+        print(f"[Launcher] download and not your Python install — please send this")
+        print(f"[Launcher] message to the developer. A fix is served from the server,")
+        print(f"[Launcher] so re-running launch.bat once it lands will pick it up.")
         if v < (3, 12):
+            # Deliberately NOT "upgrade to 3.12+": this launcher supports
+            # 3.10-3.12 and warns above 3.13 (PyTorch/pywinauto), so telling a
+            # user on the recommended 3.11 to upgrade would trade this error
+            # for a worse one. The script must parse on 3.11 — see
+            # check_py311.py in radai-automation-src.
             print(f"[Launcher]")
-            print(f"[Launcher] This is almost certainly a Python version problem, not a")
-            print(f"[Launcher] broken download. Install Python 3.12 or newer from")
-            print(f"[Launcher] https://www.python.org/downloads/ (tick \"Add python.exe")
-            print(f"[Launcher] to PATH\"), then run launch.bat again.")
-        else:
-            print(f"[Launcher]")
-            print(f"[Launcher] Please send this message to the developer.")
+            print(f"[Launcher] (Python {v.major}.{v.minor} is a supported version — you do")
+            print(f"[Launcher]  not need to change it.)")
         sys.exit(1)
     del source  # free source string
     exec(code, {"__name__": "__main__", "__file__": sys.argv[0]})
